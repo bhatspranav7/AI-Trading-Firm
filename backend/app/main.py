@@ -52,8 +52,9 @@ class Engine:
         ok = await self.llm.check()
         self.feed.on_tick(self.on_tick)
         await self.feed.start()
-        for pt in self.journal.equity_curve():
-            self.hub.equity_curve.append(pt)
+        # The ledger starts fresh every run, so the equity chart covers this session only;
+        # the SQLite journal keeps accumulating trades and meetings across runs.
+        self.hub.equity_point(self.ledger.equity())
         self._tasks = [
             asyncio.create_task(self._scan_loop()),
             asyncio.create_task(self._equity_loop()),
