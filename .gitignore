@@ -13,3 +13,5 @@ data/*.db-journal
 # os
 .DS_Store
 Thumbs.db
+data/
+*.tsbuildinfo
