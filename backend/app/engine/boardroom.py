@@ -130,8 +130,12 @@ class Boardroom:
         self.hub.push({"type": "meeting", "meeting": meeting})
 
         ctx = self._context(symbol, snap, pos)
+        # One trader speaks per meeting (they rotate); the rest of the desk keeps working the book.
+        traders = [a for a in desk if a.role == "TRADER"]
+        if len(traders) > 1:
+            traders = [traders[self._mid % len(traders)]]
         speakers = ([lead] + [a for a in desk if a.role == "QUANT"] + [a for a in desk if a.role == "RESEARCH"]
-                    + [a for a in desk if a.role == "TRADER"] + [self.firm.exec("MD")])
+                    + traders + [self.firm.exec("MD")])
 
         votes: list[tuple[str, float, float]] = []
         for a in speakers:
@@ -235,16 +239,22 @@ class Boardroom:
             return None
         return {k: round(v, 4) if isinstance(v, float) else v for k, v in sized.items()}
 
-    def _system(self, agent: Agent, symbol: str) -> str:
+    def _brief(self, ctx: str) -> str:
+        """Shared system prompt for every speaker in a meeting. Identical text first so the model's
+        prompt cache can reuse it; on a CPU-only box prompt evaluation is the slow part."""
         return (
-            f"You are {agent.name}, {agent.title} at an AI crypto trading firm that trades paper money on live "
-            f"Binance prices. Personality: {agent.personality} Risk appetite: {agent.appetite_word()} "
-            f"({agent.risk_appetite:.1f} of 1).\n"
-            f"You are in a boardroom meeting about {symbol}. Speak in first person, one to three sentences, under 45 "
-            f"words, like a real trader talking to colleagues. Disagree when you see it differently and name the "
-            f"colleague you disagree with. Never mention being an AI or a model.\n"
-            f"Role brief: {ROLE_BRIEF[agent.role]}\nReply only with JSON matching the schema."
+            "Boardroom meeting at an AI crypto trading firm. Paper money, live Binance prices. Firm rules: at most "
+            f"{self.s.max_committed * 100:.0f}% of capital committed, {self.s.max_per_position * 100:.0f}% per position, "
+            f"{self.s.max_leverage}x leverage, {self.s.max_loss_per_trade * 100:.0f}% of capital at risk per trade.\n"
+            f"{ctx}\n"
+            "Speakers talk in first person, one or two sentences, under 35 words, like traders to colleagues. "
+            "Disagree by name when you see it differently. Never mention AI. Reply only with JSON matching the schema."
         )
+
+    @staticmethod
+    def _persona(agent: Agent) -> str:
+        return (f"You are {agent.name}, {agent.title}. {agent.personality} Risk appetite: {agent.appetite_word()}.\n"
+                f"Your job: {ROLE_BRIEF[agent.role]}")
 
     def _context(self, symbol: str, snap: dict, pos) -> str:
         p = snap["price"]
@@ -280,7 +290,7 @@ class Boardroom:
     def _colleagues(transcript: list[dict]) -> str:
         if not transcript:
             return "Nobody has spoken yet."
-        return "\n".join(f"- {e['name']} ({e['title']}) [{e['stance']} {e['confidence']:.0%}]: {e['statement']}"
+        return "\n".join(f"- {e['name']} ({e['title']}) [{e['stance']} {e['confidence']:.0%}]: {e['statement'][:160]}"
                          for e in transcript)
 
     async def _opinion(self, agent: Agent, symbol: str, ctx: str, transcript: list[dict], snap: dict, pos) -> dict:
@@ -288,11 +298,11 @@ class Boardroom:
              if not pos else
              "The desk already holds this position. Give your stance on where price goes next (LONG, SHORT or NEUTRAL), "
              "your confidence from 0 to 1, and what you say to the room about holding, closing or flipping.")
-        user = f"{ctx}\n\nColleagues so far:\n{self._colleagues(transcript)}\n\n{q}"
+        user = f"{self._persona(agent)}\n\nColleagues so far:\n{self._colleagues(transcript)}\n\n{q}"
         schema = MD_SCHEMA if agent.role == "MD" else OPINION_SCHEMA
         if agent.role == "MD":
             user += " Also give size_pct, the share of capital you want committed (0 to 30)."
-        data = await self.llm.ask(self._system(agent, symbol), user, schema, agent.temperature)
+        data = await self.llm.ask(self._brief(ctx), user, schema, agent.temperature)
         if data is None:
             data = self._heuristic_opinion(agent, snap, pos, transcript)
             data["source"] = "heuristic"
@@ -306,13 +316,12 @@ class Boardroom:
             return {"approve": False, "size_pct": 0, "leverage": 1, "stop_atr": 1.5, "target_atr": 3,
                     "statement": "Nobody in the room has a side. I am not sizing a trade that does not exist.",
                     "source": "rule"}
-        user = (f"{ctx}\n\nThe room so far:\n{self._colleagues(transcript)}\n\n"
+        user = (f"{self._persona(agent)}\n\nThe room so far:\n{self._colleagues(transcript)}\n\n"
                 f"The room leans {side} with consensus {consensus:.0%}."
                 + (f" The MD asked for {md_size:.0f}% of capital." if md_size is not None else "")
-                + " Decide: approve or reject, size_pct of capital (0-30, firm cap 30% total, 15% per position), "
-                  "leverage (1-5), stop_atr and target_atr as ATR multiples (stop at least 0.8, target at least "
-                  "1.2x the stop). Then say it to the room.")
-        data = await self.llm.ask(self._system(agent, snap["symbol"]), user, RISK_SCHEMA, agent.temperature)
+                + " Decide: approve or reject, size_pct of capital, leverage (1-5), stop_atr and target_atr as ATR "
+                  "multiples (stop at least 0.8, target at least 1.2x the stop). Then say it to the room.")
+        data = await self.llm.ask(self._brief(ctx), user, RISK_SCHEMA, agent.temperature)
         if data is None:
             data = self._heuristic_risk(agent, snap, consensus, md_size)
             data["source"] = "heuristic"
@@ -326,11 +335,11 @@ class Boardroom:
             z = risk_op["sized"]
             risk_line += (f" Sized at {z['size_pct']:.1f}% of capital, {z['leverage']}x, stop ${z['stop']:,.2f}, "
                           f"target ${z['target']:,.2f}, risk Rs {z['risk_inr']:,.0f}, reward/risk {z['rr']:.1f}.")
-        user = (f"{ctx}\n\nThe meeting:\n{self._colleagues(transcript)}\n\n{risk_line}\n\n"
+        user = (f"{self._persona(agent)}\n\nThe meeting:\n{self._colleagues(transcript)}\n\n{risk_line}\n\n"
                 f"Room consensus: {side or 'none'} at {consensus:.0%}. Your options: {', '.join(options)}. "
                 f"Give decision, conviction 0-1, and what you tell the room. If risk rejected, you cannot open "
                 f"or flip; stand down or hold.")
-        data = await self.llm.ask(self._system(agent, snap["symbol"]), user, ceo_schema(options), agent.temperature)
+        data = await self.llm.ask(self._brief(ctx), user, ceo_schema(options), agent.temperature)
         if data is None or data.get("decision") not in options:
             data = self._heuristic_ceo(options, side, consensus, risk_op, pos)
             data["source"] = "heuristic"

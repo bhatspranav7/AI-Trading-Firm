@@ -45,7 +45,7 @@ class LLM:
         return self.available and self.model_found
 
     async def ask(self, system: str, user: str, schema: dict, temperature: float = 0.7,
-                  max_tokens: int = 220) -> dict | None:
+                  max_tokens: int = 140) -> dict | None:
         if not (self.available and self.model_found):
             return None
         body = {
@@ -53,7 +53,8 @@ class LLM:
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "stream": False,
             "format": schema,
-            "options": {"temperature": temperature, "num_predict": max_tokens},
+            "keep_alive": "30m",
+            "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": 2048},
         }
         t0 = time.time()
         self.calls += 1
