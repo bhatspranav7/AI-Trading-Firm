@@ -1,3 +1,5 @@
+export type Status = "working" | "boardroom" | "coffee" | "arriving";
+
 export interface Agent {
   id: string;
   name: string;
@@ -6,7 +8,7 @@ export interface Agent {
   desk: string | null;
   personality: string;
   risk_appetite: number;
-  status: "working" | "boardroom" | "coffee" | "arriving";
+  status: Status;
   status_until: number;
   last_statement: string;
   last_stance: string;
@@ -37,6 +39,15 @@ export interface Market {
   score: number;
 }
 
+export interface Candle {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
 export interface Position {
   id: string;
   symbol: string;
@@ -62,6 +73,20 @@ export interface Position {
   pnl_inr: number;
 }
 
+export interface Sized {
+  size_pct: number;
+  margin_inr: number;
+  notional_inr: number;
+  leverage: number;
+  fill: number;
+  stop: number;
+  target: number;
+  stop_atr: number;
+  target_atr: number;
+  risk_inr: number;
+  rr: number;
+}
+
 export interface Entry {
   ts: number;
   agent_id: string;
@@ -77,7 +102,9 @@ export interface Entry {
   notes?: string[];
   decision?: string;
   size_pct?: number;
-  sized?: Record<string, number> | null;
+  sized?: Sized | null;
+  recommendation?: boolean;
+  override?: boolean;
 }
 
 export interface Meeting {
@@ -86,7 +113,8 @@ export interface Meeting {
   trigger: string;
   started: number;
   ended?: number;
-  status: "live" | "done";
+  deadline?: number;
+  status: "live" | "awaiting_ceo" | "done";
   transcript: Entry[];
   decision: string | null;
   conviction: number | null;
@@ -94,6 +122,13 @@ export interface Meeting {
   outcome: string;
   snapshot: Partial<Market>;
   attendees: string[];
+  decided_by: string | null;
+  position: Position | null;
+  options?: string[];
+  consensus?: { side: string | null; strength: number };
+  risk?: { approve: boolean; sized: Sized | null; notes: string[]; side: string | null };
+  compliance?: { ok: boolean; notes: string[] };
+  recommendation?: { decision: string; conviction: number; statement: string; by: string };
 }
 
 export interface Summary {
@@ -120,9 +155,33 @@ export interface FirmInfo {
   market_source: string;
   market_connected: boolean;
   llm: { model: string; available: boolean; calls: number; failures: number; avg_latency: number; error: string | null };
-  limits: { max_committed: number; max_per_position: number; max_leverage: number; max_loss_per_trade: number };
+  limits: { max_committed: number; max_per_position: number; max_leverage: number; max_loss_per_trade: number; daily_loss_limit: number };
+  ceo_mode: "human" | "ai";
+  decision_timeout_sec: number;
   staff: number;
   max_staff: number;
+  auth_required: boolean;
+}
+
+export interface Settings {
+  ceo_mode: "human" | "ai";
+  decision_timeout_sec: number;
+  decision_timeout_action: "stand_down" | "follow_advisor";
+  max_committed: number;
+  max_per_position: number;
+  max_leverage: number;
+  max_loss_per_trade: number;
+  daily_loss_limit: number;
+  setup_threshold: number;
+  meeting_interval_sec: number;
+  scan_interval_sec: number;
+  ollama_model: string;
+  ollama_url: string;
+  symbols: string[];
+  capital_inr: number;
+  fee_rate: number;
+  candle_interval: string;
+  auth_required: boolean;
 }
 
 export interface Stats {
@@ -143,6 +202,7 @@ export interface Stats {
   meetings_executed: number;
   by_symbol: Record<string, { trades: number; pnl: number; wins: number }>;
   by_reason: Record<string, number>;
+  by_decider: Record<string, number>;
 }
 
 export interface Ev {
@@ -150,6 +210,8 @@ export interface Ev {
   kind: string;
   text: string;
   symbol: string | null;
+  meeting_id?: number;
+  decision?: string;
   [k: string]: unknown;
 }
 
@@ -158,17 +220,29 @@ export interface EquityPoint {
   equity: number;
 }
 
+export interface Toast {
+  id: number;
+  kind: string;
+  text: string;
+  ts: number;
+  meeting_id?: number;
+}
+
 export interface State {
   connected: boolean;
   firm: FirmInfo | null;
+  settings: Settings | null;
   summary: Summary | null;
   markets: Record<string, Market>;
+  candles: Record<string, Candle[]>;
   agents: Agent[];
   positions: Position[];
   closed: Position[];
   meeting: Meeting | null;
   meetings: Meeting[];
+  pending: Meeting[];
   events: Ev[];
   equity: EquityPoint[];
   stats: Stats | null;
+  toasts: Toast[];
 }
