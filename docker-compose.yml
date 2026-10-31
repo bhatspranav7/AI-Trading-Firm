@@ -1,0 +1,34 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama:/root/.ollama
+    # Pull the model on first start: docker compose exec ollama ollama pull llama3.2
+    # Uncomment for an NVIDIA GPU:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  firm:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+      CEO_MODE: ${CEO_MODE:-human}
+      CEO_PASSCODE: ${CEO_PASSCODE:-}
+      CAPITAL_INR: ${CAPITAL_INR:-2500000}
+    volumes:
+      - firmdata:/firm/data
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+volumes:
+  ollama:
+  firmdata:

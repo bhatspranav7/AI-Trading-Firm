@@ -47,6 +47,12 @@ class Settings:
     ollama_model: str = _env("OLLAMA_MODEL", "llama3.2")
     ollama_timeout: float = _env("OLLAMA_TIMEOUT", 90.0, float)
 
+    # Who makes the final call. "human": meetings end with a recommendation and wait for you.
+    ceo_mode: str = _env("CEO_MODE", "human").lower()
+    decision_timeout_sec: int = _env("DECISION_TIMEOUT_SEC", 300, int)
+    decision_timeout_action: str = _env("DECISION_TIMEOUT_ACTION", "stand_down").lower()  # stand_down | follow_advisor
+    ceo_passcode: str = _env("CEO_PASSCODE", "")          # empty = no auth on control endpoints
+
     meeting_interval_sec: int = _env("MEETING_INTERVAL_SEC", 180, int)
     scan_interval_sec: int = _env("SCAN_INTERVAL_SEC", 20, int)
     setup_threshold: float = _env("SETUP_THRESHOLD", 0.35, float)

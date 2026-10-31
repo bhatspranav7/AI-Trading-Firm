@@ -1,9 +1,11 @@
-"""The boardroom: a desk argues, risk pushes back, compliance checks, the CEO calls it, the desk executes."""
+"""The boardroom: a desk argues, risk pushes back, compliance checks, the CEO calls it.
+
+With a human CEO (the default) the meeting ends in a recommendation and waits for the
+owner's decision, with a deadline. With an AI CEO the chief executive agent decides."""
 from __future__ import annotations
 
 import asyncio
 import logging
-import random
 import time
 
 from .firm import Agent, Firm
@@ -62,9 +64,12 @@ ROLE_BRIEF = {
     "RESEARCH": "Read the regime and the day's move. Put the setup in context: trending, ranging, volatile or exhausted.",
     "TRADER": "Judge momentum and whether the trade can actually be filled cleanly given spread and volatility.",
     "MD": "You own the P&L. Push for size when the desk agrees. Say when the room is too timid or too reckless.",
-    "RISK": "You size trades and kill bad ones. Decide approve or reject, size as % of capital, leverage, and stop and target as ATR multiples. Be stingy; the firm cap is 30% committed and 15% per position.",
+    "RISK": "You size trades and kill bad ones. Decide approve or reject, size as % of capital, leverage, and stop and target as ATR multiples. Be stingy.",
     "CEO": "You make the final call. Weigh the whole room, not the loudest voice. Stand down or hold when the room is split or conviction is thin.",
+    "ADVISOR": "You advise the CEO, who will make the final call. Recommend one option, give your conviction, and say in one sentence why, naming who in the room you side with.",
 }
+
+HUMAN_CEO = {"agent_id": "ceo-human", "name": "You", "role": "CEO", "title": "Chief Executive Officer", "desk": None}
 
 
 class Boardroom:
@@ -80,15 +85,29 @@ class Boardroom:
         self.hub = hub
         self.lock = asyncio.Lock()
         self.last_meeting = {sym: 0.0 for sym in settings.symbols}
+        self.pending: dict[int, dict] = {}          # meeting id -> meeting awaiting the CEO
+        self._risk_ops: dict[int, dict] = {}        # meeting id -> raw risk proposal
+        self._timeouts: dict[int, asyncio.Task] = {}
         self._mid = 0
 
     # ------------------------------------------------------------ scheduling
+    @property
+    def human(self) -> bool:
+        return self.s.ceo_mode == "human"
+
+    def pending_for(self, symbol: str) -> dict | None:
+        return next((m for m in self.pending.values() if m["symbol"] == symbol), None)
+
     def should_meet(self, symbol: str) -> str | None:
+        if self.pending_for(symbol):
+            return None
         snap = self.feed.snapshot(symbol)
         if not snap.get("ready"):
             return None
         since = time.time() - self.last_meeting[symbol]
-        if since < self.s.min_meeting_gap_sec or self.lock.locked() and since < self.s.meeting_interval_sec:
+        if since < self.s.min_meeting_gap_sec:
+            return None
+        if self.lock.locked() and since < self.s.meeting_interval_sec:
             return None
         if abs(snap["score"]) >= self.s.setup_threshold:
             return "setup spotted"
@@ -99,6 +118,8 @@ class Boardroom:
         return None
 
     async def run(self, symbol: str, trigger: str) -> dict | None:
+        if self.pending_for(symbol):
+            raise ValueError(f"{symbol} already has a decision waiting on the CEO")
         async with self.lock:
             self.last_meeting[symbol] = time.time()
             try:
@@ -122,7 +143,8 @@ class Boardroom:
             "id": self._mid, "symbol": symbol, "trigger": trigger, "started": time.time(),
             "status": "live", "transcript": [], "decision": None, "conviction": None,
             "executed": False, "outcome": "", "snapshot": self._compact(snap),
-            "attendees": [a.id for a in desk + execs],
+            "attendees": [a.id for a in desk + execs], "decided_by": None,
+            "position": pos.to_dict() if pos else None,
         }
         self.hub.current_meeting = meeting
         lead = next((a for a in desk if a.role == "LEAD"), desk[0])
@@ -130,7 +152,6 @@ class Boardroom:
         self.hub.push({"type": "meeting", "meeting": meeting})
 
         ctx = self._context(symbol, snap, pos)
-        # One trader speaks per meeting (they rotate); the rest of the desk keeps working the book.
         traders = [a for a in desk if a.role == "TRADER"]
         if len(traders) > 1:
             traders = [traders[self._mid % len(traders)]]
@@ -139,7 +160,7 @@ class Boardroom:
 
         votes: list[tuple[str, float, float]] = []
         for a in speakers:
-            op = await self._opinion(a, symbol, ctx, meeting["transcript"], snap, pos)
+            op = await self._opinion(a, ctx, meeting["transcript"], snap, pos)
             self._say(meeting, a, op)
             if op["stance"] in ("LONG", "SHORT"):
                 votes.append((op["stance"], float(op["confidence"]), a.risk_appetite))
@@ -156,6 +177,7 @@ class Boardroom:
         risk_op["approve"] = bool(risk_op.get("approve")) and sized is not None
         risk_op["notes"] = notes
         risk_op["sized"] = sized
+        risk_op["side"] = side
         self._say(meeting, risk_agent, {"stance": side or "NEUTRAL", "confidence": consensus,
                                         "statement": risk_op["statement"], "source": risk_op["source"],
                                         "approve": risk_op["approve"], "notes": notes,
@@ -169,7 +191,6 @@ class Boardroom:
         if conviction < 0.5 and decision in ("LONG", "SHORT", "FLIP"):
             demoted = decision
             decision = "HOLD" if pos else "STAND_DOWN"
-        meeting["decision"], meeting["conviction"] = decision, conviction
 
         comp_agent = self.firm.exec("COMPLIANCE")
         comp_ok, comp_notes = self.compliance.review(symbol, decision, snap)
@@ -178,41 +199,140 @@ class Boardroom:
                                         "approve": comp_ok})
 
         ceo_entry = {"stance": decision, "confidence": conviction, "statement": ceo["statement"],
-                     "source": ceo["source"], "decision": decision}
+                     "source": ceo["source"], "decision": decision, "recommendation": self.human}
         if demoted:
             ceo_entry["statement"] += f" (Wanted {demoted}, but conviction under 50%, so {decision}.)"
         self._say(meeting, ceo_agent, ceo_entry)
 
-        outcome, executed = self._execute(symbol, decision, snap, side, risk_op, comp_ok, comp_notes, pos, ceo)
-        meeting.update({"status": "done", "ended": time.time(), "outcome": outcome, "executed": executed})
-        self.journal.record_meeting(symbol, trigger, decision, conviction, executed, meeting["transcript"])
-        self.hub.meetings.append(meeting)
-        self.hub.current_meeting = None
+        meeting["options"] = options
+        meeting["consensus"] = {"side": side, "strength": consensus}
+        meeting["risk"] = {"approve": risk_op["approve"], "sized": self._compact_sized(sized), "notes": notes,
+                           "side": side}
+        meeting["compliance"] = {"ok": comp_ok, "notes": comp_notes}
+        meeting["recommendation"] = {"decision": decision, "conviction": conviction, "statement": ceo["statement"],
+                                     "by": ceo_agent.name}
+        self._risk_ops[meeting["id"]] = risk_op
         self.firm.set_status(desk + execs, "working")
         for a in desk + execs:
             a.meetings += 1
-        self.hub.event("decision", f"{ceo_agent.name}: {decision} on {symbol[:3]} at {conviction:.0%} conviction. {outcome}",
-                       symbol, decision=decision)
-        self.hub.push({"type": "meeting", "meeting": meeting})
-        self.hub.push({"type": "agents", "agents": self.firm.to_list()})
+
+        if self.human:
+            meeting["status"] = "awaiting_ceo"
+            meeting["deadline"] = time.time() + self.s.decision_timeout_sec
+            self.pending[meeting["id"]] = meeting
+            self.hub.current_meeting = None
+            self.hub.meetings.append(meeting)
+            self.hub.event("decision_needed",
+                           f"{symbol[:3]} desk is waiting on you. {ceo_agent.name} recommends {decision.replace('_', ' ')} "
+                           f"at {conviction:.0%} conviction.", symbol, meeting_id=meeting["id"], decision=decision)
+            self.hub.push({"type": "meeting", "meeting": meeting})
+            self.hub.push({"type": "pending", "pending": list(self.pending.values())})
+            self.hub.push({"type": "agents", "agents": self.firm.to_list()})
+            self._timeouts[meeting["id"]] = asyncio.create_task(self._timeout(meeting["id"]))
+            return meeting
+
+        outcome, executed = self._execute(symbol, decision, snap, risk_op, comp_ok, comp_notes, pos,
+                                          ceo["statement"], override_risk=False)
+        self._finish(meeting, decision, conviction, outcome, executed, "ai")
         return meeting
 
+    # --------------------------------------------------------- the CEO's call
+    async def decide(self, meeting_id: int, decision: str, size_pct: float | None = None,
+                     leverage: int | None = None, override_risk: bool = False, note: str = "",
+                     by: str = "human") -> dict:
+        meeting = self.pending.get(meeting_id)
+        if not meeting:
+            raise ValueError("no decision is waiting for that meeting")
+        if decision not in meeting["options"]:
+            raise ValueError(f"decision must be one of {meeting['options']}")
+        self.pending.pop(meeting_id, None)
+        t = self._timeouts.pop(meeting_id, None)
+        if t and not t.done():
+            t.cancel()
+
+        symbol = meeting["symbol"]
+        snap = self.feed.snapshot(symbol)
+        pos = self.ledger.positions.get(symbol)
+        risk_op = dict(self._risk_ops.pop(meeting_id, {}) or {"approve": False, "statement": "", "side": None})
+        if size_pct is not None:
+            risk_op["size_pct"] = float(size_pct)
+        if leverage is not None:
+            risk_op["leverage"] = int(leverage)
+        comp_ok, comp_notes = self.compliance.review(symbol, decision, snap)
+
+        who = dict(HUMAN_CEO) if by == "human" else {**HUMAN_CEO, "name": "Deadline passed", "title": "default action"}
+        statement = note.strip() or (
+            f"{decision.replace('_', ' ')}." if by == "human"
+            else f"No decision within {self.s.decision_timeout_sec // 60} minutes. Default: {decision.replace('_', ' ')}."
+        )
+        extra = {"stance": decision, "confidence": 1.0 if by == "human" else 0.0, "statement": statement,
+                 "source": by, "decision": decision}
+        if override_risk:
+            extra["override"] = True
+        self._say(meeting, who, extra)
+
+        outcome, executed = self._execute(symbol, decision, snap, risk_op, comp_ok, comp_notes, pos, statement,
+                                          override_risk=override_risk)
+        conviction = meeting["recommendation"]["conviction"] if meeting.get("recommendation") else 0.0
+        self._finish(meeting, decision, conviction, outcome, executed, by)
+        self.hub.push({"type": "pending", "pending": list(self.pending.values())})
+        return meeting
+
+    async def _timeout(self, meeting_id: int):
+        try:
+            await asyncio.sleep(self.s.decision_timeout_sec)
+        except asyncio.CancelledError:
+            return
+        m = self.pending.get(meeting_id)
+        if not m:
+            return
+        rec = (m.get("recommendation") or {}).get("decision")
+        if self.s.decision_timeout_action == "follow_advisor" and rec in m["options"]:
+            decision = rec
+        else:
+            decision = "HOLD" if m.get("position") else "STAND_DOWN"
+        try:
+            await self.decide(meeting_id, decision, by="timeout")
+        except Exception:  # noqa: BLE001
+            log.exception("timeout decision failed")
+
+    def _finish(self, meeting, decision, conviction, outcome, executed, decided_by):
+        meeting.update({"status": "done", "ended": time.time(), "decision": decision, "conviction": conviction,
+                        "outcome": outcome, "executed": executed, "decided_by": decided_by})
+        meeting.pop("deadline", None)
+        self.journal.record_meeting(meeting["symbol"], meeting["trigger"], decision, conviction, executed,
+                                    meeting["transcript"], decided_by)
+        if meeting not in self.hub.meetings:
+            self.hub.meetings.append(meeting)
+        self.hub.current_meeting = None
+        who = {"ai": self.firm.exec("CEO").name, "human": "You", "timeout": "Deadline"}.get(decided_by, decided_by)
+        self.hub.event("decision", f"{who}: {decision.replace('_', ' ')} on {meeting['symbol'][:3]}. {outcome}",
+                       meeting["symbol"], decision=decision, decided_by=decided_by)
+        self.hub.push({"type": "meeting", "meeting": meeting})
+        self.hub.push({"type": "agents", "agents": self.firm.to_list()})
+
     # --------------------------------------------------------------- helpers
-    def _say(self, meeting: dict, agent: Agent, op: dict):
+    def _say(self, meeting: dict, agent, op: dict):
+        if isinstance(agent, Agent):
+            ident = {"agent_id": agent.id, "name": agent.name, "role": agent.role, "title": agent.title,
+                     "desk": agent.desk}
+        else:
+            ident = {k: agent[k] for k in ("agent_id", "name", "role", "title", "desk")}
         entry = {
-            "ts": time.time(), "agent_id": agent.id, "name": agent.name, "role": agent.role,
-            "title": agent.title, "desk": agent.desk, "stance": op.get("stance", "NEUTRAL"),
+            "ts": time.time(), **ident,
+            "stance": op.get("stance", "NEUTRAL"),
             "confidence": round(float(op.get("confidence", 0.5)), 2),
             "statement": str(op.get("statement", "")).strip()[:400],
             "source": op.get("source", "llm"),
         }
-        for k in ("approve", "notes", "sized", "decision", "size_pct"):
+        for k in ("approve", "notes", "sized", "decision", "size_pct", "recommendation", "override"):
             if k in op and op[k] is not None:
                 entry[k] = op[k]
         meeting["transcript"].append(entry)
-        agent.last_statement = entry["statement"]
-        agent.last_stance = entry["stance"]
-        agent.calls += 1
+        if isinstance(agent, Agent):
+            agent.last_statement = entry["statement"]
+            agent.last_stance = entry["stance"]
+            agent.calls += 1
         self.hub.push({"type": "statement", "meeting_id": meeting["id"], "entry": entry})
 
     @staticmethod
@@ -252,10 +372,10 @@ class Boardroom:
             "Disagree by name when you see it differently. Never mention AI. Reply only with JSON matching the schema."
         )
 
-    @staticmethod
-    def _persona(agent: Agent) -> str:
+    def _persona(self, agent: Agent) -> str:
+        brief_key = "ADVISOR" if (agent.role == "CEO" and self.human) else agent.role
         return (f"You are {agent.name}, {agent.title}. {agent.personality} Risk appetite: {agent.appetite_word()}.\n"
-                f"Your job: {ROLE_BRIEF[agent.role]}")
+                f"Your job: {ROLE_BRIEF[brief_key]}")
 
     def _context(self, symbol: str, snap: dict, pos) -> str:
         p = snap["price"]
@@ -294,7 +414,7 @@ class Boardroom:
         return "\n".join(f"- {e['name']} ({e['title']}) [{e['stance']} {e['confidence']:.0%}]: {e['statement'][:160]}"
                          for e in transcript)
 
-    async def _opinion(self, agent: Agent, symbol: str, ctx: str, transcript: list[dict], snap: dict, pos) -> dict:
+    async def _opinion(self, agent: Agent, ctx: str, transcript: list[dict], snap: dict, pos) -> dict:
         q = ("Give your stance (LONG, SHORT or NEUTRAL), your confidence from 0 to 1, and what you say to the room."
              if not pos else
              "The desk already holds this position. Give your stance on where price goes next (LONG, SHORT or NEUTRAL), "
@@ -305,7 +425,7 @@ class Boardroom:
             user += " Also give size_pct, the share of capital you want committed (0 to 30)."
         data = await self.llm.ask(self._brief(ctx), user, schema, agent.temperature)
         if data is None:
-            data = self._heuristic_opinion(agent, snap, pos, transcript)
+            data = self._heuristic_opinion(agent, snap, pos)
             data["source"] = "heuristic"
         else:
             data["source"] = "llm"
@@ -324,7 +444,7 @@ class Boardroom:
                   "multiples (stop at least 0.8, target at least 1.2x the stop). Then say it to the room.")
         data = await self.llm.ask(self._brief(ctx), user, RISK_SCHEMA, agent.temperature)
         if data is None:
-            data = self._heuristic_risk(agent, snap, consensus, md_size)
+            data = self._heuristic_risk(snap, consensus, md_size)
             data["source"] = "heuristic"
         else:
             data["source"] = "llm"
@@ -336,10 +456,11 @@ class Boardroom:
             z = risk_op["sized"]
             risk_line += (f" Sized at {z['size_pct']:.1f}% of capital, {z['leverage']}x, stop ${z['stop']:,.2f}, "
                           f"target ${z['target']:,.2f}, risk Rs {z['risk_inr']:,.0f}, reward/risk {z['rr']:.1f}.")
+        ask = ("Give your recommendation to the CEO, your conviction 0-1, and one sentence of reasoning."
+               if self.human else "Give decision, conviction 0-1, and what you tell the room.")
         user = (f"{self._persona(agent)}\n\nThe meeting:\n{self._colleagues(transcript)}\n\n{risk_line}\n\n"
-                f"Room consensus: {side or 'none'} at {consensus:.0%}. Your options: {', '.join(options)}. "
-                f"Give decision, conviction 0-1, and what you tell the room. If risk rejected, you cannot open "
-                f"or flip; stand down or hold.")
+                f"Room consensus: {side or 'none'} at {consensus:.0%}. Options: {', '.join(options)}. {ask} "
+                f"If risk rejected, you cannot open or flip; stand down or hold.")
         data = await self.llm.ask(self._brief(ctx), user, ceo_schema(options), agent.temperature)
         if data is None or data.get("decision") not in options:
             data = self._heuristic_ceo(options, side, consensus, risk_op, pos)
@@ -354,7 +475,7 @@ class Boardroom:
 
     # ---------------------------------------------------- heuristic fallbacks
     @staticmethod
-    def _heuristic_opinion(agent: Agent, snap: dict, pos, transcript) -> dict:
+    def _heuristic_opinion(agent: Agent, snap: dict, pos) -> dict:
         score = snap["score"]
         rsi = snap.get("rsi") or 50
         contrarian = any(w in agent.personality.lower() for w in ("contrarian", "mean-reversion", "fade"))
@@ -379,7 +500,7 @@ class Boardroom:
         return out
 
     @staticmethod
-    def _heuristic_risk(agent: Agent, snap: dict, consensus: float, md_size) -> dict:
+    def _heuristic_risk(snap: dict, consensus: float, md_size) -> dict:
         approve = consensus >= 0.55 and abs(snap["score"]) >= 0.25
         size = min(12.0, (md_size or 8.0) * 0.6)
         lev = 2 if snap["atr_pct"] < 0.2 else 1
@@ -394,45 +515,51 @@ class Boardroom:
         if pos:
             against = side and side != pos.side and consensus >= 0.6
             if against and risk_op["approve"]:
-                return {"decision": "FLIP", "conviction": consensus, "statement": "The room turned. We flip."}
+                return {"decision": "FLIP", "conviction": consensus, "statement": "The room turned. Flip it."}
             if against:
-                return {"decision": "CLOSE", "conviction": consensus, "statement": "The room turned and risk won't size the other way. Close it."}
+                return {"decision": "CLOSE", "conviction": consensus,
+                        "statement": "The room turned and risk won't size the other way. Close it."}
             return {"decision": "HOLD", "conviction": max(0.5, consensus), "statement": "Nothing has changed enough. Hold."}
         if side and risk_op["approve"] and consensus >= 0.55:
             return {"decision": side, "conviction": consensus, "statement": f"Room agrees, risk approves. {side}."}
         return {"decision": "STAND_DOWN", "conviction": 1 - consensus if side else 0.8,
-                "statement": "Split room or thin edge. We stand down."}
+                "statement": "Split room or thin edge. Stand down."}
 
     # -------------------------------------------------------------- execution
-    def _execute(self, symbol, decision, snap, side, risk_op, comp_ok, comp_notes, pos, ceo) -> tuple[str, bool]:
+    def _execute(self, symbol, decision, snap, risk_op, comp_ok, comp_notes, pos, rationale,
+                 override_risk: bool) -> tuple[str, bool]:
         if decision == "STAND_DOWN":
             return "Stood down.", False
         if decision == "HOLD":
             return "Holding the position.", False
         if decision == "CLOSE":
+            if not pos:
+                return "Nothing to close.", False
             fill = snap["bid"] if pos.side == "LONG" else snap["ask"]
             p = self.ledger.close(symbol, fill, "ceo_close")
             self.on_closed(p)
             return f"Closed {p.side} at ${fill:,.2f} for Rs {p.pnl_inr:+,.0f}.", True
         if not comp_ok:
             return "Blocked by compliance: " + "; ".join(comp_notes), False
-        if not risk_op["approve"] or not risk_op.get("sized"):
-            return "Risk desk vetoed; no trade.", False
+        if decision == "FLIP" and not pos:
+            return "Nothing to flip.", False
+        if not risk_op.get("approve") and not override_risk:
+            return "Risk desk vetoed; no trade. (CEO can override.)", False
         new_side = decision if decision in ("LONG", "SHORT") else ("SHORT" if pos.side == "LONG" else "LONG")
-        sized = risk_op["sized"]
-        if new_side != side:
-            sized, _ = self.risk.size(risk_op, snap, new_side)
-            if not sized:
-                return "Risk could not size the CEO's side; no trade.", False
+        sized, notes = self.risk.size(risk_op, snap, new_side)
+        if not sized:
+            return "Risk could not size it: " + "; ".join(notes), False
         if decision == "FLIP":
             fill = snap["bid"] if pos.side == "LONG" else snap["ask"]
             p = self.ledger.close(symbol, fill, "flip")
             self.on_closed(p)
         try:
             p = self.ledger.open(symbol, new_side, sized["margin_inr"], sized["leverage"], sized["fill"],
-                                 sized["stop"], sized["target"], symbol, ceo["statement"])
+                                 sized["stop"], sized["target"], symbol, rationale)
         except ValueError as e:
             return f"Order rejected: {e}.", False
+        if override_risk and not risk_op.get("approve"):
+            self.hub.event("override", f"CEO overrode the risk desk on {symbol[:3]}.", symbol)
         self.hub.event(
             "trade",
             f"{new_side} {symbol[:3]} {p.qty:.4f} at ${p.entry:,.2f}, {p.leverage}x, margin Rs {p.margin_inr:,.0f}, "

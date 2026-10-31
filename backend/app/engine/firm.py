@@ -75,10 +75,11 @@ class Agent:
     meetings: int = 0
     calls: int = 0
     hired_at: float = field(default_factory=time.time)
+    title_override: str | None = None
 
     @property
     def title(self) -> str:
-        return ROLE_TITLES[self.role]
+        return self.title_override or ROLE_TITLES[self.role]
 
     def appetite_word(self) -> str:
         if self.risk_appetite >= 0.7:
@@ -94,7 +95,8 @@ class Agent:
 
 
 class Firm:
-    def __init__(self, symbols: list[str], max_staff: int, hire_every: int, coffee_chance: float):
+    def __init__(self, symbols: list[str], max_staff: int, hire_every: int, coffee_chance: float,
+                 human_ceo: bool = True):
         self.symbols = symbols
         self.max_staff = max_staff
         self.hire_every = hire_every
@@ -110,6 +112,13 @@ class Firm:
             staff = DESK_STAFF.get(sym) or self._generic_desk(sym)
             for role, name, pers, app, temp in staff:
                 self._add(role, name, sym, pers, app, temp)
+        self.set_human_ceo(human_ceo)
+
+    def set_human_ceo(self, human: bool) -> None:
+        """With a human CEO, the AI chief executive becomes Chief of Staff and only recommends."""
+        a = self.exec("CEO")
+        a.title_override = "Chief of Staff" if human else None
+        self.human_ceo = human
 
     @staticmethod
     def _generic_desk(sym: str):

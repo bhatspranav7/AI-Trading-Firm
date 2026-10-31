@@ -28,6 +28,10 @@ class Journal:
             """
         )
         self.db.commit()
+        cols = {r["name"] for r in self.db.execute("PRAGMA table_info(meetings)").fetchall()}
+        if "decided_by" not in cols:
+            self.db.execute("ALTER TABLE meetings ADD COLUMN decided_by TEXT DEFAULT 'ai'")
+            self.db.commit()
 
     def record_trade(self, p) -> None:
         self.db.execute(
@@ -38,13 +42,25 @@ class Journal:
         )
         self.db.commit()
 
-    def record_meeting(self, symbol, trigger, decision, conviction, executed, transcript) -> None:
+    def record_meeting(self, symbol, trigger, decision, conviction, executed, transcript,
+                       decided_by: str = "ai") -> None:
         self.db.execute(
-            "INSERT INTO meetings (ts, symbol, trigger, decision, conviction, executed, transcript) "
-            "VALUES (?,?,?,?,?,?,?)",
-            (time.time(), symbol, trigger, decision, conviction, int(executed), json.dumps(transcript)),
+            "INSERT INTO meetings (ts, symbol, trigger, decision, conviction, executed, transcript, decided_by) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (time.time(), symbol, trigger, decision, conviction, int(executed), json.dumps(transcript), decided_by),
         )
         self.db.commit()
+
+    def trades_csv(self) -> str:
+        rows = self.db.execute("SELECT * FROM trades ORDER BY closed_at").fetchall()
+        if not rows:
+            return "id,symbol,side\n"
+        keys = rows[0].keys()
+        out = [",".join(keys)]
+        for r in rows:
+            out.append(",".join('"' + str(r[k]).replace('"', "'") + '"' if isinstance(r[k], str) else str(r[k] if r[k] is not None else "")
+                                for k in keys))
+        return "\n".join(out) + "\n"
 
     def record_equity(self, equity: float) -> None:
         self.db.execute("INSERT INTO equity VALUES (?,?)", (time.time(), equity))
@@ -90,6 +106,8 @@ class Journal:
             if peak:
                 max_dd = max(max_dd, (peak - e) / peak * 100)
         meetings = self.db.execute("SELECT COUNT(*) AS n, SUM(executed) AS x FROM meetings").fetchone()
+        by_decider = {r["decided_by"] or "ai": r["n"] for r in self.db.execute(
+            "SELECT decided_by, COUNT(*) AS n FROM meetings GROUP BY decided_by").fetchall()}
         if gross_loss > 0:
             pf = gross_win / gross_loss
         else:
@@ -112,4 +130,5 @@ class Journal:
             "meetings_executed": meetings["x"] or 0,
             "by_symbol": by_symbol,
             "by_reason": by_reason,
+            "by_decider": by_decider,
         }
