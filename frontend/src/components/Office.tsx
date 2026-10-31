@@ -68,7 +68,7 @@ function Desk({ symbol, agents, market, position, onCall, busy, inMeeting }: {
         <div className="desk-ind">
           <span>RSI <b>{m.rsi?.toFixed(0)}</b></span>
           <span>MACD <b className={(m.macd_hist ?? 0) >= 0 ? "pos" : "neg"}>{(m.macd_hist ?? 0) >= 0 ? "+" : "−"}{m.macd_rising ? "↑" : "↓"}</b></span>
-          <span>ATR <b>{pct0(m.atr_pct)}</b></span>
+          <span>ATR <b>{pct0(m.atr_pct, 2)}</b></span>
           <span>spread <b>{m.spread_pct.toFixed(3)}%</b></span>
           <span className={`regime ${m.regime}`}>{m.regime}</span>
         </div>

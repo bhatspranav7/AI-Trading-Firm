@@ -248,6 +248,7 @@ class Boardroom:
             f"{self.s.max_leverage}x leverage, {self.s.max_loss_per_trade * 100:.0f}% of capital at risk per trade.\n"
             f"{ctx}\n"
             "Speakers talk in first person, one or two sentences, under 35 words, like traders to colleagues. "
+            "Do not repeat a colleague's words; add something new from your own job and quote the numbers you rely on. "
             "Disagree by name when you see it differently. Never mention AI. Reply only with JSON matching the schema."
         )
 
