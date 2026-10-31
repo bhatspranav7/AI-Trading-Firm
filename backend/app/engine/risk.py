@@ -33,6 +33,13 @@ class RiskDesk:
         target_atr = max(stop_atr * 1.2, float(proposal.get("target_atr", stop_atr * 2) or stop_atr * 2))
         d = 1 if side == "LONG" else -1
         fill = (snap.get("ask") if side == "LONG" else snap.get("bid")) or price
+        # The target must clear round-trip fees three times over, or the trade loses money when it wins.
+        min_move = fill * self.s.fee_rate * 2 * 3
+        if target_atr * a < min_move:
+            scale = min_move / (target_atr * a)
+            target_atr *= scale
+            stop_atr *= scale
+            notes.append(f"stop and target widened {scale:.1f}x so the target clears 3x round-trip fees")
         stop = fill - d * stop_atr * a
         target = fill + d * target_atr * a
 
