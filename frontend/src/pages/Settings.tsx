@@ -121,7 +121,7 @@ export function SettingsPage() {
               </div>
             </div>
             <div className="small muted">
-              {s.firm.llm.calls} calls this run · {s.firm.llm.failures} failures{s.firm.llm.error ? ` · ${s.firm.llm.error}` : ""}. Each meeting is about seven calls.
+              {s.firm.llm.calls} calls this run · {s.firm.llm.failures} failures · {s.firm.llm.repairs} cut short and repaired{s.firm.llm.error ? ` · ${s.firm.llm.error}` : ""}. Each meeting is about seven calls.
             </div>
           </div>
         </Card>

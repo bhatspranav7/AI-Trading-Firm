@@ -3,11 +3,45 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 
 import httpx
 
 log = logging.getLogger("llm")
+
+
+def repair_json(text: str) -> tuple[dict, bool]:
+    """Parse model output; if it was cut off mid-string or mid-object, close it and parse again.
+    Returns (data, was_repaired)."""
+    try:
+        return json.loads(text), False
+    except json.JSONDecodeError:
+        pass
+    s = text.strip()
+    in_str = esc = False
+    stack: list[str] = []
+    for ch in s:
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch in "{[":
+            stack.append(ch)
+        elif ch in "}]" and stack:
+            stack.pop()
+    if in_str:
+        s += '"'
+    # a key with no value yet, or a dangling comma, cannot be closed: drop it
+    s = re.sub(r'(?<=[,{])\s*"[^"]*"\s*:?\s*$', "", s)
+    s = re.sub(r",\s*$", "", s)
+    s += "".join("}" if c == "{" else "]" for c in reversed(stack))
+    return json.loads(s), True
 
 
 class LLM:
@@ -19,6 +53,7 @@ class LLM:
         self.model_found = False
         self.calls = 0
         self.failures = 0
+        self.repairs = 0
         self.avg_latency = 0.0
         self.last_error: str | None = None
         self._client = httpx.AsyncClient(timeout=timeout)
@@ -45,7 +80,7 @@ class LLM:
         return self.available and self.model_found
 
     async def ask(self, system: str, user: str, schema: dict, temperature: float = 0.7,
-                  max_tokens: int = 140) -> dict | None:
+                  max_tokens: int = 220) -> dict | None:
         if not (self.available and self.model_found):
             return None
         body = {
@@ -62,7 +97,12 @@ class LLM:
             r = await self._client.post(f"{self.url}/api/chat", json=body)
             r.raise_for_status()
             content = r.json()["message"]["content"]
-            data = json.loads(content)
+            data, repaired = repair_json(content)
+            if repaired:
+                self.repairs += 1
+                if isinstance(data.get("statement"), str):
+                    data["statement"] = data["statement"].rstrip(" ,;:") + "…"
+                log.info("llm output was cut off; repaired (%s)", content[-40:].replace(chr(10), " "))
             missing = [k for k in schema.get("required", []) if k not in data]
             if missing:
                 raise ValueError(f"missing keys {missing}")
@@ -84,6 +124,7 @@ class LLM:
             "available": self.available and self.model_found,
             "calls": self.calls,
             "failures": self.failures,
+            "repairs": self.repairs,
             "avg_latency": round(self.avg_latency, 2),
             "error": self.last_error,
         }

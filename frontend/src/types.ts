@@ -154,7 +154,7 @@ export interface FirmInfo {
   symbols: string[];
   market_source: string;
   market_connected: boolean;
-  llm: { model: string; available: boolean; calls: number; failures: number; avg_latency: number; error: string | null };
+  llm: { model: string; available: boolean; calls: number; failures: number; repairs: number; avg_latency: number; error: string | null };
   limits: { max_committed: number; max_per_position: number; max_leverage: number; max_loss_per_trade: number; daily_loss_limit: number };
   ceo_mode: "human" | "ai";
   decision_timeout_sec: number;
