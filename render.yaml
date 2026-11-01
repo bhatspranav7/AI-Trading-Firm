@@ -4,7 +4,8 @@ services:
   - type: web
     name: ai-trading-firm
     runtime: docker
-    plan: starter            # "free" also works; it sleeps after 15 idle minutes and wakes on the next visit
+    plan: free               # no card needed; sleeps after 15 idle minutes and wakes on the next visit.
+                             # For an always-on firm with a persistent journal use "starter" and add the disk below.
     region: singapore
     healthCheckPath: /api/health
     autoDeploy: true
@@ -25,9 +26,7 @@ services:
         value: "300"
       - key: MARKET_MODE
         value: live
-      - key: DB_PATH
-        value: /firm/data/firm.db
-    disk:
-      name: firm-data
-      mountPath: /firm/data
-      sizeGB: 1
+    # disk:                  # starter plan and up: keeps the journal across deploys
+    #   name: firm-data
+    #   mountPath: /firm/data
+    #   sizeGB: 1
