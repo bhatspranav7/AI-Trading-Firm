@@ -86,7 +86,7 @@ Copy `.env.example` to `.env` to change capital, coins, caps, model, cadence, CE
 
 ## Deploy
 
-**Hosted, from a URL, in a few minutes (Render + Groq).** The repo carries a `render.yaml` blueprint. In Render choose New, then Blueprint, pick this repo, and it asks for two secrets: `LLM_API_KEY` (a free key from [console.groq.com](https://console.groq.com), which serves open Llama models in under a second) and `CEO_PASSCODE` (whatever you want to lock the controls with). The blueprint sets the provider, endpoint and model for you. The starter plan keeps a 1 GB disk for the journal; the free plan works too but sleeps when idle and forgets the journal on redeploy.
+**Hosted, from a URL, in a few minutes (Render + Groq).** The repo carries a `render.yaml` blueprint. In Render choose New, then Blueprint, pick this repo, and it asks for two secrets: `LLM_API_KEY` (a free key from [console.groq.com](https://console.groq.com), which serves open Llama models in under a second) and `CEO_PASSCODE` (whatever you want to lock the controls with). The blueprint sets the provider, endpoint and model for you; if Groq retires the model, the firm switches to the closest one it offers. The starter plan keeps a 1 GB disk for the journal; the free plan works too but sleeps when idle and forgets the journal on redeploy.
 
 **Your own box with Ollama.**
 

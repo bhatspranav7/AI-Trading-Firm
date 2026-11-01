@@ -120,7 +120,7 @@ export function SettingsPage() {
               <div className="field">
                 <label><span>Model</span></label>
                 <input type="text" value={form.ollama_model} onChange={(e) => set("ollama_model", e.target.value)} />
-                <div className="hint">{form.llm_provider === "openai" ? "llama-3.1-8b-instant is near instant on Groq; llama-3.3-70b-versatile argues better" : "llama3.2 is fast on CPU; llama3.1:8b or qwen2.5:7b argue better"}</div>
+                <div className="hint">{form.llm_provider === "openai" ? "on Groq qwen/qwen3.8-27b answers in under a second; if a model is retired the firm picks the closest one offered" : "llama3.2 is fast on CPU; llama3.1:8b or qwen2.5:7b argue better"}</div>
               </div>
               <div className="field">
                 <label><span>Endpoint</span></label>

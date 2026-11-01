@@ -15,7 +15,7 @@ services:
       - key: OLLAMA_URL
         value: https://api.groq.com/openai/v1
       - key: OLLAMA_MODEL
-        value: llama-3.1-8b-instant
+        value: qwen/qwen3.8-27b   # Groq catalogue moves; the firm switches to the closest offered model if this goes
       - key: LLM_API_KEY
         sync: false          # your Groq key, entered in the dashboard, never in the repo
       - key: CEO_PASSCODE

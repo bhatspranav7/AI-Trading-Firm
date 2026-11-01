@@ -12,7 +12,7 @@ load_dotenv(ROOT / ".env")
 
 _HOSTED = os.getenv("LLM_PROVIDER", "").strip().lower() in ("openai", "groq", "compatible")
 _HOSTED_URL = "https://api.groq.com/openai/v1"
-_HOSTED_MODEL = "llama-3.1-8b-instant"
+_HOSTED_MODEL = "qwen/qwen3.8-27b"
 
 
 def _env(key: str, default, cast=str):
