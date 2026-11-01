@@ -49,7 +49,7 @@ Switch `CEO_MODE` to `ai` and the chief executive agent decides instead. Everyth
 ## Stack
 
 - **Backend**: Python 3.11+, FastAPI, WebSockets. Binance public market data, no key needed.
-- **Agents**: [Ollama](https://ollama.com) running an open-source model locally, default `llama3.2`. Structured output via JSON schema, so every decision parses. If Ollama is down the firm keeps running on rule-based heuristics and labels every such statement.
+- **Agents**: [Ollama](https://ollama.com) running an open-source model locally, default `llama3.2`, or any OpenAI-compatible endpoint (Groq by default) for hosted deployments. Structured output via JSON schema, so every decision parses. If Ollama is down the firm keeps running on rule-based heuristics and labels every such statement.
 - **Dashboard**: React, TypeScript, Vite, React Router, TradingView lightweight-charts.
 - **Journal**: SQLite.
 - **Deploy**: Dockerfile and docker-compose with an Ollama service.
@@ -86,12 +86,18 @@ Copy `.env.example` to `.env` to change capital, coins, caps, model, cadence, CE
 
 ## Deploy
 
+**Hosted, from a URL, in a few minutes (Render + Groq).** The repo carries a `render.yaml` blueprint. In Render choose New, then Blueprint, pick this repo, and it asks for two secrets: `LLM_API_KEY` (a free key from [console.groq.com](https://console.groq.com), which serves open Llama models in under a second) and `CEO_PASSCODE` (whatever you want to lock the controls with). The blueprint sets the provider, endpoint and model for you. The starter plan keeps a 1 GB disk for the journal; the free plan works too but sleeps when idle and forgets the journal on redeploy.
+
+**Your own box with Ollama.**
+
 ```bash
 docker compose up -d --build
 docker compose exec ollama ollama pull llama3.2
 ```
 
 The site is on port 8000. Set `CEO_PASSCODE` in the environment to lock every control endpoint; reads stay public so the landing page and dashboard show live state, and the browser asks you for the passcode the first time you act. For a GPU host uncomment the `deploy` block in `docker-compose.yml`.
+
+**Any other host.** Build the Dockerfile and set `LLM_PROVIDER=openai`, `OLLAMA_URL=<base url ending in /v1>`, `OLLAMA_MODEL`, `LLM_API_KEY`. Groq, Together, Fireworks, OpenRouter and a vLLM server all speak this dialect.
 
 ## Speed
 

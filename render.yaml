@@ -1,0 +1,33 @@
+# Render blueprint: one web service built from the Dockerfile, agents on Groq.
+# In the Render dashboard: New > Blueprint > pick this repo. It asks for the two secrets below.
+services:
+  - type: web
+    name: ai-trading-firm
+    runtime: docker
+    plan: starter            # "free" also works; it sleeps after 15 idle minutes and wakes on the next visit
+    region: singapore
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: LLM_PROVIDER
+        value: openai
+      - key: OLLAMA_URL
+        value: https://api.groq.com/openai/v1
+      - key: OLLAMA_MODEL
+        value: llama-3.1-8b-instant
+      - key: LLM_API_KEY
+        sync: false          # your Groq key, entered in the dashboard, never in the repo
+      - key: CEO_PASSCODE
+        sync: false          # locks every control; reads stay public for the landing page
+      - key: CEO_MODE
+        value: human
+      - key: DECISION_TIMEOUT_SEC
+        value: "300"
+      - key: MARKET_MODE
+        value: live
+      - key: DB_PATH
+        value: /firm/data/firm.db
+    disk:
+      name: firm-data
+      mountPath: /firm/data
+      sizeGB: 1

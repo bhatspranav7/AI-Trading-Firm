@@ -154,7 +154,7 @@ export interface FirmInfo {
   symbols: string[];
   market_source: string;
   market_connected: boolean;
-  llm: { model: string; available: boolean; calls: number; failures: number; repairs: number; avg_latency: number; error: string | null };
+  llm: { provider: string; model: string; available: boolean; calls: number; failures: number; repairs: number; avg_latency: number; error: string | null };
   limits: { max_committed: number; max_per_position: number; max_leverage: number; max_loss_per_trade: number; daily_loss_limit: number };
   ceo_mode: "human" | "ai";
   decision_timeout_sec: number;
@@ -177,6 +177,7 @@ export interface Settings {
   scan_interval_sec: number;
   ollama_model: string;
   ollama_url: string;
+  llm_provider: string;
   symbols: string[];
   capital_inr: number;
   fee_rate: number;

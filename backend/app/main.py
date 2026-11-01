@@ -33,7 +33,7 @@ EDITABLE = {
     "ceo_mode": str, "decision_timeout_sec": int, "decision_timeout_action": str,
     "max_committed": float, "max_per_position": float, "max_leverage": int, "max_loss_per_trade": float,
     "daily_loss_limit": float, "setup_threshold": float, "meeting_interval_sec": int, "scan_interval_sec": int,
-    "ollama_model": str, "ollama_url": str,
+    "ollama_model": str, "ollama_url": str, "llm_provider": str,
 }
 
 
@@ -44,7 +44,8 @@ class Engine:
         self.feed = MarketFeed(self.s.symbols, self.s.candle_interval, self.s.history, self.s.market_mode)
         self.ledger = Ledger(self.s.capital_inr, self.s.usdinr or 84.0, self.s.fee_rate)
         self.journal = Journal(self.s.db_path)
-        self.llm = LLM(self.s.ollama_url, self.s.ollama_model, self.s.ollama_timeout)
+        self.llm = LLM(self.s.ollama_url, self.s.ollama_model, self.s.ollama_timeout,
+                       provider=self.s.llm_provider, api_key=self.s.llm_api_key)
         self.firm = Firm(self.s.symbols, self.s.max_staff, self.s.hire_every_trades, self.s.coffee_chance,
                          human_ceo=self.s.ceo_mode == "human")
         self.risk = RiskDesk(self.s, self.ledger)
@@ -198,9 +199,10 @@ class Engine:
                 changed.append(k)
         if "ceo_mode" in changed:
             self.firm.set_human_ceo(self.s.ceo_mode == "human")
-        if "ollama_model" in changed or "ollama_url" in changed:
+        if "ollama_model" in changed or "ollama_url" in changed or "llm_provider" in changed:
             self.llm.model = self.s.ollama_model
             self.llm.url = self.s.ollama_url.rstrip("/")
+            self.llm.provider = "openai" if self.s.llm_provider in ("openai", "groq", "compatible") else "ollama"
             await self.llm.check()
         if changed:
             self.hub.event("firm", "Settings changed: " + ", ".join(changed))

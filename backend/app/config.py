@@ -10,6 +10,11 @@ ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env")
 
 
+_HOSTED = os.getenv("LLM_PROVIDER", "").strip().lower() in ("openai", "groq", "compatible")
+_HOSTED_URL = "https://api.groq.com/openai/v1"
+_HOSTED_MODEL = "llama-3.1-8b-instant"
+
+
 def _env(key: str, default, cast=str):
     raw = os.getenv(key)
     if raw is None or raw.strip() == "":
@@ -43,8 +48,12 @@ class Settings:
     max_loss_per_trade: float = 0.01      # 1% of capital at the stop
     daily_loss_limit: float = 0.05        # compliance halts new entries below this drawdown
 
-    ollama_url: str = _env("OLLAMA_URL", "http://localhost:11434").rstrip("/")
-    ollama_model: str = _env("OLLAMA_MODEL", "llama3.2")
+    # Agents. "ollama" talks to a local Ollama; "openai" talks to any OpenAI-compatible endpoint
+    # (Groq by default), which is how a hosted deployment gets fast open models without a GPU box.
+    llm_provider: str = _env("LLM_PROVIDER", "ollama").lower()
+    llm_api_key: str = _env("LLM_API_KEY", "")
+    ollama_url: str = _env("OLLAMA_URL", _HOSTED_URL if _HOSTED else "http://localhost:11434").rstrip("/")
+    ollama_model: str = _env("OLLAMA_MODEL", _HOSTED_MODEL if _HOSTED else "llama3.2")
     ollama_timeout: float = _env("OLLAMA_TIMEOUT", 180.0, float)
 
     # Who makes the final call. "human": meetings end with a recommendation and wait for you.

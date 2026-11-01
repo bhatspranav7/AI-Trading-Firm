@@ -3,7 +3,7 @@ import { Btn, Card, PasscodeModal, Tag, useAction } from "../components/ui";
 import { api, getKey, setKey, useFirm } from "../store";
 import type { Settings } from "../types";
 
-type Form = Pick<Settings, "ceo_mode" | "decision_timeout_sec" | "decision_timeout_action" | "max_committed" | "max_per_position" | "max_leverage" | "max_loss_per_trade" | "daily_loss_limit" | "setup_threshold" | "meeting_interval_sec" | "scan_interval_sec" | "ollama_model" | "ollama_url">;
+type Form = Pick<Settings, "ceo_mode" | "decision_timeout_sec" | "decision_timeout_action" | "max_committed" | "max_per_position" | "max_leverage" | "max_loss_per_trade" | "daily_loss_limit" | "setup_threshold" | "meeting_interval_sec" | "scan_interval_sec" | "ollama_model" | "ollama_url" | "llm_provider">;
 
 export function SettingsPage() {
   const s = useFirm();
@@ -14,8 +14,8 @@ export function SettingsPage() {
 
   useEffect(() => {
     if (s.settings && !form) {
-      const { ceo_mode, decision_timeout_sec, decision_timeout_action, max_committed, max_per_position, max_leverage, max_loss_per_trade, daily_loss_limit, setup_threshold, meeting_interval_sec, scan_interval_sec, ollama_model, ollama_url } = s.settings;
-      setForm({ ceo_mode, decision_timeout_sec, decision_timeout_action, max_committed, max_per_position, max_leverage, max_loss_per_trade, daily_loss_limit, setup_threshold, meeting_interval_sec, scan_interval_sec, ollama_model, ollama_url });
+      const { ceo_mode, decision_timeout_sec, decision_timeout_action, max_committed, max_per_position, max_leverage, max_loss_per_trade, daily_loss_limit, setup_threshold, meeting_interval_sec, scan_interval_sec, ollama_model, ollama_url, llm_provider } = s.settings;
+      setForm({ ceo_mode, decision_timeout_sec, decision_timeout_action, max_committed, max_per_position, max_leverage, max_loss_per_trade, daily_loss_limit, setup_threshold, meeting_interval_sec, scan_interval_sec, ollama_model, ollama_url, llm_provider });
     }
   }, [s.settings, form]);
 
@@ -109,15 +109,23 @@ export function SettingsPage() {
 
         <Card title="Agents" aside={<Tag tone={s.firm.llm.available ? "good" : "warn"}>{s.firm.llm.available ? `online · ${s.firm.llm.avg_latency}s/call` : "offline · heuristics"}</Tag>}>
           <div className="stack">
+            <div className="field">
+              <label><span>Provider</span></label>
+              <select value={form.llm_provider} onChange={(e) => set("llm_provider", e.target.value)}>
+                <option value="ollama">Ollama on this machine. Open models, no key, CPU or GPU speed.</option>
+                <option value="openai">Hosted OpenAI-compatible endpoint (Groq, Together, OpenRouter…). Needs LLM_API_KEY in the environment.</option>
+              </select>
+            </div>
             <div className="grid c2">
               <div className="field">
-                <label><span>Ollama model</span></label>
+                <label><span>Model</span></label>
                 <input type="text" value={form.ollama_model} onChange={(e) => set("ollama_model", e.target.value)} />
-                <div className="hint">llama3.2 is fast on CPU; llama3.1:8b or qwen2.5:7b argue better</div>
+                <div className="hint">{form.llm_provider === "openai" ? "llama-3.1-8b-instant is near instant on Groq; llama-3.3-70b-versatile argues better" : "llama3.2 is fast on CPU; llama3.1:8b or qwen2.5:7b argue better"}</div>
               </div>
               <div className="field">
-                <label><span>Ollama URL</span></label>
+                <label><span>Endpoint</span></label>
                 <input type="text" value={form.ollama_url} onChange={(e) => set("ollama_url", e.target.value)} />
+                <div className="hint">{form.llm_provider === "openai" ? "base URL ending in /v1" : "where Ollama listens"}</div>
               </div>
             </div>
             <div className="small muted">
