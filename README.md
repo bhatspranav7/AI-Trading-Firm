@@ -2,6 +2,8 @@
 
 **Not a bot. A whole firm, and you run it.**
 
+**Live demo: [ai-trading-firm.onrender.com](https://ai-trading-firm.onrender.com)**. Free tier, so give it 30 seconds to wake if it has been idle. Watching is open; deciding needs the CEO passcode.
+
 Twenty-five AI employees across three desks argue every trade in a boardroom. Risk sizes it, compliance clears it, the chief of staff recommends. Then the decision comes to **you, the CEO**, with a countdown. Live Binance prices, real spreads and fees, paper capital in rupees, every meeting journaled.
 
 Everything is paper money. No exchange keys, no real orders.
