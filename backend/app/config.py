@@ -45,7 +45,7 @@ class Settings:
 
     ollama_url: str = _env("OLLAMA_URL", "http://localhost:11434").rstrip("/")
     ollama_model: str = _env("OLLAMA_MODEL", "llama3.2")
-    ollama_timeout: float = _env("OLLAMA_TIMEOUT", 90.0, float)
+    ollama_timeout: float = _env("OLLAMA_TIMEOUT", 180.0, float)
 
     # Who makes the final call. "human": meetings end with a recommendation and wait for you.
     ceo_mode: str = _env("CEO_MODE", "human").lower()
