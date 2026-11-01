@@ -50,7 +50,7 @@ export function Landing() {
             <p className="h-sub">
               Twenty-five AI employees across three desks argue every trade in a boardroom. Risk sizes it, compliance
               clears it, the chief of staff recommends. Then the decision comes to you, the CEO, with a countdown.
-              Live Binance prices, real spreads and fees, paper capital in rupees.
+              Live exchange prices, real spreads and fees, paper capital in rupees.
             </p>
             <div className="cta-row">
               <Link to="/app" className="btn primary lg">Enter the firm as CEO</Link>
@@ -144,7 +144,7 @@ export function Landing() {
           <h2 className="sec-h">Under the hood</h2>
           <p className="sec-p">Open source end to end. Runs on a laptop; deploys as one container.</p>
           <div className="stackrow">
-            {["Python · FastAPI · WebSockets", "Binance public market data", "Ollama · open-source LLM · typed JSON outputs", "SQLite journal", "React · TypeScript · Vite", "TradingView lightweight charts", "Docker"].map((t) => (
+            {["Python · FastAPI · WebSockets", "Binance / Bybit public market data", "Open-source LLMs · Ollama or Groq · typed JSON outputs", "SQLite journal", "React · TypeScript · Vite", "TradingView lightweight charts", "Docker"].map((t) => (
               <Tag key={t} tone="soft">{t}</Tag>
             ))}
           </div>

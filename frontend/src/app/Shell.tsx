@@ -58,7 +58,7 @@ export function Shell() {
         </nav>
         <div className="side-foot">
           <div className="status"><span className={`status-dot ${s.connected ? "good" : "bad"}`} />{s.connected ? "live stream" : "reconnecting"}</div>
-          <div className="status"><span className={`status-dot ${f.market_source === "binance" ? "good" : "warn"}`} />{f.market_source === "binance" ? "Binance spot, live" : "simulated market"}</div>
+          <div className="status"><span className={`status-dot ${f.market_source === "sim" ? "warn" : "good"}`} />{f.market_source === "binance" ? "Binance spot, live" : f.market_source === "bybit" ? "Bybit spot, live" : "simulated market"}</div>
           <div className="status" title={f.llm.error ?? ""}><span className={`status-dot ${f.llm.available ? "good" : "warn"}`} />{f.llm.model} {f.llm.available ? `· ${f.llm.avg_latency}s/call` : "· offline, heuristics"}</div>
           <div className="status"><span className="status-dot" />{f.staff}/{f.max_staff} staff · open {ago(f.started_at)}</div>
           {f.paused && <div className="status"><span className="status-dot bad" />paused</div>}

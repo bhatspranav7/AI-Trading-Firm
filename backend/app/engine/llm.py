@@ -88,8 +88,15 @@ class LLM:
                 self.model_found = (not names) or any(
                     n == self.model or n == f"{self.model}:latest" or n.split(":")[0] == base for n in names)
                 if names and not self.model_found:
-                    self.last_error = f"model {self.model} not offered by {self.url}"
-                    log.warning(self.last_error)
+                    # the catalogue moves; pick the closest open chat model rather than going dark
+                    pick = self._closest(names)
+                    log.warning("model %s not offered by %s; offered: %s", self.model, self.url, ", ".join(sorted(names))[:400])
+                    if pick:
+                        self.last_error = f"{self.model} is not offered here; using {pick}"
+                        self.model = pick
+                        self.model_found = True
+                    else:
+                        self.last_error = f"model {self.model} not offered by {self.url}"
                 else:
                     self.last_error = None
             else:
@@ -112,6 +119,15 @@ class LLM:
             what = str(e) if isinstance(e, PermissionError) else e.__class__.__name__
             self.last_error = f"{self.provider} endpoint unreachable at {self.url} ({what})"
         return self.available and self.model_found
+
+    @staticmethod
+    def _closest(names: list[str]) -> str | None:
+        chat = [n for n in names if not any(x in n.lower() for x in ("whisper", "tts", "guard", "embed", "vision", "safeguard", "prompt"))]
+        for pref in ("llama-3.1-8b", "llama-3.3-70b", "llama-4", "llama", "qwen", "gemma", "mixtral", "gpt-oss", "kimi", "deepseek"):
+            hits = sorted(n for n in chat if pref in n.lower())
+            if hits:
+                return hits[0]
+        return chat[0] if chat else None
 
     # ---- one typed call -----------------------------------------------------------------------
 

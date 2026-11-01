@@ -286,7 +286,8 @@ class Decision(BaseModel):
 # ------------------------------------------------------------------ reads
 @app.get("/api/health")
 async def health():
-    return {"ok": True, "market": engine.feed.source, "llm": engine.llm.status(), "paused": engine.paused,
+    return {"ok": True, "market": engine.feed.source, "market_error": engine.feed.last_error,
+            "llm": engine.llm.status(), "paused": engine.paused,
             "ceo_mode": engine.s.ceo_mode, "pending": len(engine.boardroom.pending)}
 
 

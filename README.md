@@ -48,7 +48,7 @@ Switch `CEO_MODE` to `ai` and the chief executive agent decides instead. Everyth
 
 ## Stack
 
-- **Backend**: Python 3.11+, FastAPI, WebSockets. Binance public market data, no key needed.
+- **Backend**: Python 3.11+, FastAPI, WebSockets. Binance public market data with Bybit as the fallback venue (exchanges geo-block some hosting regions), no key needed.
 - **Agents**: [Ollama](https://ollama.com) running an open-source model locally, default `llama3.2`, or any OpenAI-compatible endpoint (Groq by default) for hosted deployments. Structured output via JSON schema, so every decision parses. If Ollama is down the firm keeps running on rule-based heuristics and labels every such statement.
 - **Dashboard**: React, TypeScript, Vite, React Router, TradingView lightweight-charts.
 - **Journal**: SQLite.

@@ -38,7 +38,7 @@ export function Desks() {
         <div className="stack">
           <Card
             title={<span className="row gap"><span className="price">{m?.ready ? fmtUSD(m.price) : "…"}</span>{m?.ready && <span className={`chg ${m.chg_60 >= 0 ? "good" : "bad"}`}>{pct(m.chg_15)} 15m · {pct(m.chg_60)} 1h</span>}</span>}
-            aside={<span className="mono">{f.market_source === "binance" ? "Binance spot · 1m" : "simulation · 1m"} · {candles.length} candles</span>}
+            aside={<span className="mono">{f.market_source === "binance" ? "Binance spot · 1m" : f.market_source === "bybit" ? "Bybit spot · 1m" : "simulation · 1m"} · {candles.length} candles</span>}
             pad={false}
           >
             {candles.length ? <CandleChart candles={candles} position={pos} /> : <div className="muted small" style={{ padding: 14 }}>Loading candles…</div>}
